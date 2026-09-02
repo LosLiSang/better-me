@@ -1,4 +1,15 @@
-import { QUIZ_VERSION, QuizQuestion } from "./types";
+import { QuizQuestion } from "./types";
+
+/** 问卷版本（存入 assessment_session.quiz_version，供重建反馈/变更追溯；单源在此） */
+export const QUIZ_VERSION = "v1";
+
+/** 年龄档位 → 计算用中位岁数（BMR 公式需要精确年龄；常量单源，算法引用此表） */
+export const AGE_RANGE_MIDPOINT: Record<string, number> = {
+  "18-29": 24,
+  "30-39": 35,
+  "40-49": 45,
+  "50+": 57,
+} as const;
 
 /** 题库（原创中文 33 题 v1） */
 export const QUIZ_QUESTIONS: QuizQuestion[] = [
@@ -36,6 +47,7 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
     options: [
       { value: "lose_weight", label: "减重", feedback: "减重是我们最擅长的，后面的建议会围绕它展开。" },
       { value: "maintain", label: "保持体重和健康", feedback: "保持也是一种能力，我们会帮你稳住状态。" },
+      { value: "gain_weight", label: "增重/增肌", feedback: "增重和减重一样需要科学，我们帮你健康地长。" },
     ],
   },
   {
@@ -60,7 +72,9 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
     question: "你的目标体重是多少？",
     required: true,
     forCalculation: true,
-    numeric: { min: 30, max: 250, unit: "kg", compareTo: { key: "weight", op: "lte" } },
+    // 跨字段合理性（目标体重 vs 当前体重 vs goal）由服务端按 goal 分支校验：
+    // lose_weight → target ≤ weight；gain_weight → target ≥ weight；maintain → 允许接近
+    numeric: { min: 30, max: 250, unit: "kg" },
   },
   {
     key: "activity_frequency",
@@ -413,20 +427,20 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
   },
 ];
 
-/** 必填的计算 key（结构测试断言这些都在题库里） */
-export const REQUIRED_CALC_KEYS = [
-  "gender",
-  "age",
-  "goal",
-  "height",
-  "weight",
-  "target_weight",
-  "activity_frequency",
-] as const;
+/**
+ * 必填计算 key —— 从题库数据推导（非手写），避免与 forCalculation/required 漂移。
+ * 测试断言该集合的期望内容（见 config.test.ts）。
+ */
+export const REQUIRED_CALC_KEYS = QUIZ_QUESTIONS
+  .filter((q) => q.forCalculation && q.required)
+  .map((q) => q.key);
+
+/** 参与计算的全部 key（含非必填，若未来有） */
+export const ALL_CALC_KEYS = QUIZ_QUESTIONS
+  .filter((q) => q.forCalculation)
+  .map((q) => q.key);
 
 /** 按 key 取题 */
 export function getQuestion(key: string): QuizQuestion | undefined {
   return QUIZ_QUESTIONS.find((q) => q.key === key);
 }
-
-export { QUIZ_VERSION };

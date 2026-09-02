@@ -1,18 +1,9 @@
 /**
- * 题库配置 —— 原创中文 33 题健康测评问卷（v1）
+ * 题库类型定义 —— 原创中文 33 题健康测评问卷（v1）
  *
- * 设计依据见 `doc/问卷设计-v1.md`。
- * 题库是「应用内容」（所有人一样、静态），放代码配置，不进数据库。
- * 每题选项带逐项 `feedback`（选什么反馈什么），制造"有来有回"。
- *
- * 注意：
- * - 这里的 key 是 stepKey 单源，POST /step 校验用同一份。
- * - 反馈不依赖缺失值；数值输入用区间归类文案。
- * - 结构测试见 `lib/quiz/config.test.ts`。
+ * 题库数据见 `config.ts`；结构测试见 `config.test.ts`。
+ * 这里的 key 是 stepKey 单源，POST /step 校验用同一份。
  */
-
-/** 问卷版本（存入 assessment_session.quiz_version，供重建反馈/变更追溯） */
-export const QUIZ_VERSION = "v1";
 
 /** 题目变体类型 */
 export type QuestionType = "single" | "multi" | "number" | "likert";
@@ -33,8 +24,6 @@ export interface NumericValidation {
   max: number;
   /** 单位文本，如 cm / kg */
   unit: string;
-  /** 额外合理性约束（如目标体重 ≤ 当前体重），供服务端计算前校验 */
-  compareTo?: { key: string; op: "lte" | "gte" };
 }
 
 /** 一条题目 */
