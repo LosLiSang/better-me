@@ -1,26 +1,119 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * 手绘手账主题（Design A：hand-drawn sketch / notebook）
+ * - 纸面底纹：SVG feTurbulence 噪点（无图片资源）
+ * - 手绘边框：不规则 border-radius + 微旋转
+ * - 动画：只做一次性入场（画线/落笔），无常驻循环（性能纪律）
+ */
+
+@theme {
+  /* 纸与笔 */
+  --color-paper: #faf7f0;
+  --color-paper-dark: #f3eee2;
+  --color-ink: #3b3a36;
+  --color-pencil: #6b6862;
+  --color-pencil-light: #a8a49a;
+
+  /* 柔和底色 */
+  --color-sky-soft: #d8e7f3;
+  --color-sky-deep: #7ba7cc;
+  --color-sun-soft: #fdf3d1;
+  --color-sun-deep: #e9c46a;
+
+  /* 强调（重要指标/CTA） */
+  --color-accent: #e76f51;
+  --color-accent-soft: #fadbd0;
+  --color-mint: #7fb69e;
+  --color-marker: #ffe08a;
+
+  --font-hand: "LXGW WenKai", "Kaiti SC", "STKaiti", "KaiTi", serif;
+  --font-digits: "Caveat", "LXGW WenKai", serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-hand);
+}
+
+/* 纸面噪点底纹（叠加在 body 背景） */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.40 0 0 0 0 0.36 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── 手绘边框 ─────────────────────────────────────────────── */
+.sketch-border {
+  border: 2px solid var(--color-ink);
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+}
+.sketch-border-sm {
+  border: 2px solid var(--color-ink);
+  border-radius: 155px 12px 145px 12px / 12px 145px 12px 155px;
+}
+.sketch-border-tidy {
+  /* 付费/升级"整洁笔记"卡：笔触收敛、对齐规整 */
+  border: 2px solid var(--color-ink);
+  border-radius: 14px 14px 14px 14px / 14px 14px 14px 14px;
+}
+.tilt-1 { transform: rotate(-0.35deg); }
+.tilt-2 { transform: rotate(0.3deg); }
+.tilt-3 { transform: rotate(-0.15deg); }
+
+/* ── 荧光笔高亮 ───────────────────────────────────────────── */
+.marker-yellow {
+  background: linear-gradient(
+    104deg,
+    transparent 0.5%,
+    var(--color-marker) 3%,
+    var(--color-marker) 96%,
+    transparent 99%
+  );
+  padding: 0 0.2em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* 手写下划线（略歪的 base 边框） */
+.underline-sketch {
+  background-image: linear-gradient(transparent 92%, var(--color-sky-deep) 92%, var(--color-sky-deep) 96%, transparent 96%);
+}
+
+/* ── 一次性入场动画 ───────────────────────────────────────── */
+@keyframes draw-in {
+  from { stroke-dashoffset: var(--dash, 600); }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes wobble-in {
+  0% { opacity: 0; transform: translateY(10px) rotate(-1.2deg) scale(0.98); }
+  60% { opacity: 1; transform: translateY(-2px) rotate(0.4deg) scale(1.01); }
+  100% { opacity: 1; transform: translateY(0) rotate(var(--tilt, 0deg)) scale(1); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.wobble-in {
+  animation: wobble-in 0.45s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+.fade-up {
+  animation: fade-up 0.35s ease-out both;
+}
+.draw-in path,
+.draw-in polyline {
+  stroke-dasharray: var(--dash, 600);
+  animation: draw-in 1.2s ease-out forwards;
+}
+
+/* 数字（指标）用手写数字字体 */
+.digits {
+  font-family: var(--font-digits);
+  font-weight: 700;
 }

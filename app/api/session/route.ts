@@ -13,7 +13,10 @@ export async function POST() {
     .select("id, current_step")
     .single();
 
-  if (error) return jsonError(error.message, 500);
+  if (error) {
+    console.error("[POST /api/session] insert failed:", error.message, error.details, error.hint);
+    return jsonError(error.message, 500);
+  }
   return NextResponse.json({
     sessionId: data.id,
     currentStep: data.current_step,
