@@ -49,6 +49,9 @@ export interface AssessResult {
 
 export type BmiCategory = "underweight" | "normal" | "overweight" | "obese";
 
+/** 算法版本（存入 assessment_result.algorithm_version） */
+export const ALGORITHM_VERSION = "v1";
+
 /** 活动系数（单源） */
 const ACTIVITY_FACTOR: Record<ActivityFrequency, number> = {
   sedentary: 1.2,
