@@ -40,12 +40,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: 启动本地 Supabase 栈（排除重服务加速，失败回退全量）
+      - name: 启动本地 Supabase 栈（全新库自动从零应用全部迁移；排除重服务加速，失败回退全量）
         run: |
           npx supabase start -x studio,imgproxy,inbucket,storage-api,vector,meta,analytics,edge-runtime,pooler \
             || npx supabase start
-      - name: 重放迁移，验证迁移链完整
-        run: npx supabase db reset
       - name: 运行时提取本地栈环境变量（不硬编码任何 key）
         run: |
           npx supabase status -o env | sed -nE \
