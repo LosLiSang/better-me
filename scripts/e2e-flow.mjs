@@ -37,15 +37,41 @@ function cookieHeader(storage = sb.auth.storage) {
   return `${COOKIE_NAME}=base64-${btoa(unescape(encodeURIComponent(raw)))}`;
 }
 
-const { data: anon, error: aErr } = await sb.auth.signInAnonymously();
-check("匿名登录", !!anon?.session && !aErr, aErr?.message);
+// 网络层抖动（代理回绕 supabase.co 偶发 ECONNRESET）——仅重试网络异常，业务性失败不重试
+async function withRetry(fn, label, tries = 6) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      lastErr = e;
+      const msg = String(e?.message ?? e);
+      // 只重试纯网络故障
+      if (!/(fetch failed|ECONNRESET|ECONNREFUSED|socket|network|The operation was aborted)/i.test(msg) && !String(e?.cause?.code ?? "").match(/fetch|reset|refused|timeout/i)) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
 
+async function loginAnon(client) {
+  const { data, error } = await withRetry(() => client.auth.signInAnonymously(), "anon");
+  if (error || !data?.session) throw new Error(error?.message ?? "no session");
+  return data;
+}
+
+let anon;
+try {
+  anon = await loginAnon(sb);
+  check("匿名登录", !!anon?.session, "");
+} catch (e) {
+  check("匿名登录", false, e.message);
+}
 async function api(method, path, body) {
-  const r = await fetch(SITE + path, {
+  const r = await withRetry(() => fetch(SITE + path, {
     method,
     headers: { "Content-Type": "application/json", Cookie: cookieHeader() },
     body: body ? JSON.stringify(body) : undefined,
-  });
+  }), "api " + path);
   let j = null; try { j = await r.json(); } catch {}
   return { status: r.status, json: j };
 }
@@ -142,12 +168,13 @@ const sb2 = createClient(SB_URL, ANON, {
     },
   },
 });
-const { error: anon2Err } = await sb2.auth.signInAnonymously();
+let anon2Err;
+try { await loginAnon(sb2); } catch (e) { anon2Err = e; }
 if (anon2Err) throw new Error("第二个匿名用户登录失败：" + anon2Err.message);
 const raw2 = cookieHeader(sb2.auth.storage);
-const r3 = await fetch(SITE + `/api/session/${sessionId}/result`, {
+const r3 = await withRetry(() => fetch(SITE + `/api/session/${sessionId}/result`, {
   headers: { Cookie: raw2 },
-});
+}), "越权 fetch");
 check("越权访问 404", r3.status === 404);
 
 console.log(failures === 0 ? "\nALL E2E PASS" : `\n${failures} FAILURES`);
