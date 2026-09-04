@@ -139,6 +139,8 @@ jobs:
           # "commit author 无权限" 的 TEAM_ACCESS_REQUIRED 拦截；不改仓库 remote
           rsync -a --exclude .git --exclude node_modules ./ /tmp/deploy-src/
           cd /tmp/deploy-src
+          mkdir -p .vercel
+          printf '{"orgId":"%s","projectId":"%s"}' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
           npx vercel build --prod --token="$VERCEL_TOKEN"
           npx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
