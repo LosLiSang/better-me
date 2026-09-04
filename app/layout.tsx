@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Caveat } from "next/font/google";
 import "lxgw-wenkai-webfont/style.css";
+import KeepWarm from "@/components/KeepWarm";
 import "./globals.css";
 
 const caveat = Caveat({
@@ -19,7 +20,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${caveat.variable} antialiased`}>{children}</body>
+      <body className={`${caveat.variable} antialiased`}>
+        <KeepWarm />
+        {children}
+      </body>
     </html>
   );
 }
