@@ -141,6 +141,12 @@ jobs:
           cd /tmp/deploy-src
           mkdir -p .vercel
           printf '{"orgId":"%s","projectId":"%s"}' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          echo "诊断：org=${VERCEL_ORG_ID:0:10}… proj=${VERCEL_PROJECT_ID:0:10}… token=$([ -n "$VERCEL_TOKEN" ] && echo 已设 || echo 缺失)"
+          cat .vercel/project.json
+          echo "── whoami ──"
+          npx vercel whoami --token="$VERCEL_TOKEN"
+          echo "── 可见项目 ──"
+          npx vercel project ls --token="$VERCEL_TOKEN" 2>&1 | head -8
           npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
           npx vercel build --prod --token="$VERCEL_TOKEN"
           npx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
