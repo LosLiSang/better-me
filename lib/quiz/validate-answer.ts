@@ -83,8 +83,8 @@ export function crossValidateAnswer(
       errs.push(`target_weight: 减重目标应小于当前体重(${weight}kg)`);
     if (goal === "gain_weight" && target <= weight)
       errs.push(`target_weight: 增重目标应大于当前体重(${weight}kg)`);
-    if (goal === "maintain" && Math.abs(target - weight) > 1)
-      errs.push(`target_weight: maintain 目标应与当前体重相差 ≤1kg`);
+    if (goal === "maintain" && Math.abs(target - weight) > 10)
+      errs.push(`target_weight: maintain 目标应与当前体重相差 ≤10kg`);
   }
 
   if (stepKey === "goal") {
@@ -96,7 +96,7 @@ export function crossValidateAnswer(
       errs.push(`goal: 已存目标体重(${target}kg)与减重目标冲突`);
     if (goal === "gain_weight" && target <= weight)
       errs.push(`goal: 已存目标体重(${target}kg)与增重目标冲突`);
-    if (goal === "maintain" && Math.abs(target - weight) > 1)
+    if (goal === "maintain" && Math.abs(target - weight) > 10)
       errs.push(`goal: 已存目标体重(${target}kg)与 maintain 冲突`);
   }
 

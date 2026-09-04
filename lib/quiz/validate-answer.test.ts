@@ -73,10 +73,10 @@ describe("crossValidateAnswer（与已存答案交叉校验）", () => {
     expect(crossValidateAnswer("target_weight", { value: 60 }, s2).length).toBeGreaterThan(0);
   });
 
-  it("maintain 容差 ±1：71.5 通过、68 拒绝", () => {
+  it("maintain 容差 ±10：80 通过、83 拒绝", () => {
     const s3 = { ...saved, goal: { value: "maintain" } };
-    expect(crossValidateAnswer("target_weight", { value: 71.5 }, s3)).toEqual([]);
-    expect(crossValidateAnswer("target_weight", { value: 68 }, s3).length).toBeGreaterThan(0);
+    expect(crossValidateAnswer("target_weight", { value: 80 }, s3)).toEqual([]);
+    expect(crossValidateAnswer("target_weight", { value: 83 }, s3).length).toBeGreaterThan(0);
   });
 
   it("依赖字段尚未提交 → 不交叉校验（通过，留给 complete 兜底）", () => {
@@ -87,5 +87,11 @@ describe("crossValidateAnswer（与已存答案交叉校验）", () => {
     const saved2 = { weight: { value: 72 }, target_weight: { value: 65 } };
     expect(crossValidateAnswer("goal", { value: "gain_weight" }, saved2).length).toBeGreaterThan(0);
     expect(crossValidateAnswer("goal", { value: "lose_weight" }, saved2)).toEqual([]);
+  });
+
+  it("反向：goal=maintain 与已存 target_weight 相差 >10 → 拒绝", () => {
+    const saved3 = { weight: { value: 72 }, target_weight: { value: 83 } };
+    expect(crossValidateAnswer("goal", { value: "maintain" }, saved3).length).toBeGreaterThan(0);
+    expect(crossValidateAnswer("goal", { value: "maintain" }, { weight: { value: 72 }, target_weight: { value: 80 } })).toEqual([]);
   });
 });
