@@ -33,6 +33,9 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # 模拟支付总开关：e2e 需要它，且必须在 next start 服务进程启动前就存在
+      DEMO_PAYMENT_ENABLED: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
