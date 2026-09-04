@@ -149,11 +149,8 @@ jobs:
           echo "── API 探测（user 端点 vs 项目端点，团队作用域 token 会前者 403/404 后者 200）──"
           echo "v2/user: $(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://api.vercel.com/v2/user -H "Authorization: Bearer $VERCEL_TOKEN")"
           echo "v9/projects/better-me: $(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://api.vercel.com/v9/projects/better-me?teamId=$VERCEL_ORG_ID" -H "Authorization: Bearer $VERCEL_TOKEN")"
-          echo "── whoami（仅供参考，不阻断）──"
-          npx vercel whoami --scope=lisangs-projects-b8952959 --token="$VERCEL_TOKEN" || true
-          npx vercel pull --yes --environment=production --scope=lisangs-projects-b8952959 --token="$VERCEL_TOKEN"
-          npx vercel build --prod --scope=lisangs-projects-b8952959 --token="$VERCEL_TOKEN"
-          npx vercel deploy --prebuilt --prod --scope=lisangs-projects-b8952959 --token="$VERCEL_TOKEN"
+          echo "── 部署（项目作用域 token 不支持 pull/prebuilt，改用服务端构建）──"
+          npx vercel deploy --prod --yes --scope=lisangs-projects-b8952959 --token="$VERCEL_TOKEN"
 
   # ── 5. 生产冒烟：非破坏性（不注册、不支付）────────────────────
   smoke:
