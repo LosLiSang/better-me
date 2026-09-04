@@ -48,9 +48,11 @@ jobs:
         run: npx supabase db reset
       - name: 运行时提取本地栈环境变量（不硬编码任何 key）
         run: |
-          npx supabase status -o env | sed -n \
-            -e 's/^export API_URL=/NEXT_PUBLIC_SUPABASE_URL=/p' \
-            -e 's/^export ANON_KEY=/NEXT_PUBLIC_SUPABASE_ANON_KEY=/p' >> "$GITHUB_ENV"
+          npx supabase status -o env | sed -nE \
+            -e 's/^(export[[:space:]]+)?API_URL=/NEXT_PUBLIC_SUPABASE_URL=/p' \
+            -e 's/^(export[[:space:]]+)?ANON_KEY=/NEXT_PUBLIC_SUPABASE_ANON_KEY=/p' >> "$GITHUB_ENV"
+          grep -q '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' "$GITHUB_ENV" \
+            || { echo "::error::未能从 supabase status 提取 ANON_KEY"; exit 1; }
       - name: 构建 + 启动生产模式服务
         run: |
           npm run build
