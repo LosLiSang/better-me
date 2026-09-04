@@ -5,9 +5,10 @@
  */
 import { createClient } from "@supabase/supabase-js";
 
-const URL = "http://127.0.0.1:54321";
+// 支持指向任意环境（本地栈/生产）：E2E_SUPABASE_URL + E2E_SITE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY
+const URL = process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const SITE = "http://localhost:3000";
+const SITE = process.env.E2E_SITE_URL ?? "http://localhost:3000";
 let failures = 0;
 
 function check(name, cond, extra = "") {
@@ -27,11 +28,13 @@ const sb = createClient(URL, ANON, {
   },
 });
 
-// @supabase/ssr 的 cookie 名由项目 host 推导：127.0.0.1 → sb-127-auth-token
-function cookieHeader() {
-  const raw = sb.auth.storage._s;
+// @supabase/ssr 的 cookie 名由 Supabase URL 首段推导：127.0.0.1 → sb-127-auth-token；
+// 云项目 → sb-<project-ref>-auth-token
+const COOKIE_NAME = `sb-${new URL(URL).hostname.split(".")[0]}-auth-token`;
+function cookieHeader(storage = sb.auth.storage) {
+  const raw = storage._s;
   if (!raw) return "";
-  return `sb-127-auth-token=base64-${btoa(unescape(encodeURIComponent(raw)))}`;
+  return `${COOKIE_NAME}=base64-${btoa(unescape(encodeURIComponent(raw)))}`;
 }
 
 const { data: anon, error: aErr } = await sb.auth.signInAnonymously();
@@ -137,7 +140,7 @@ const sb2 = createClient(URL, ANON, {
 });
 const { error: anon2Err } = await sb2.auth.signInAnonymously();
 if (anon2Err) throw new Error("第二个匿名用户登录失败：" + anon2Err.message);
-const raw2 = `sb-127-auth-token=base64-${btoa(unescape(encodeURIComponent(sb2.auth.storage._s)))}`;
+const raw2 = cookieHeader(sb2.auth.storage);
 const r3 = await fetch(SITE + `/api/session/${sessionId}/result`, {
   headers: { Cookie: raw2 },
 });
