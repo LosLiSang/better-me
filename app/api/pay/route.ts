@@ -7,6 +7,8 @@ const SUBSCRIPTION_DAYS = 30;
 
 /**
  * POST /api/pay —— 模拟支付回调（用户级，拒绝匿名）。
+ * - 总开关：服务端环境变量 DEMO_PAYMENT_ENABLED !== "true" 时拒绝（默认关）；
+ *   公开演示部署时在 Vercel 显式设 true
  * - 匿名用户（无 email）→ 403，先 /api/upgrade
  * - 续期不缩短：expires_at = greatest(coalesce(expires_at, now), now) + N 天
  * - 幂等：payment_event_id 唯一；同一 user upsert
@@ -19,6 +21,13 @@ export async function POST() {
     return NextResponse.json(
       { error: "anonymous_forbidden", message: "请先升级为正式账号再订阅" },
       { status: 403 }
+    );
+  }
+
+  if (process.env.DEMO_PAYMENT_ENABLED !== "true") {
+    return NextResponse.json(
+      { error: "payment_disabled", message: "支付渠道暂未开通" },
+      { status: 501 }
     );
   }
 
