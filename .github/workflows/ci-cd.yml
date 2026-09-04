@@ -150,10 +150,10 @@ jobs:
           echo "v2/user: $(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://api.vercel.com/v2/user -H "Authorization: Bearer $VERCEL_TOKEN")"
           echo "v9/projects/better-me: $(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://api.vercel.com/v9/projects/better-me?teamId=$VERCEL_ORG_ID" -H "Authorization: Bearer $VERCEL_TOKEN")"
           echo "── whoami（仅供参考，不阻断）──"
-          npx vercel whoami --token="$VERCEL_TOKEN" || true
-          npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          npx vercel build --prod --token="$VERCEL_TOKEN"
-          npx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          npx vercel whoami --scope=lisangs-projects-b8952959 --token="$VERCEL_TOKEN" || true
+          npx vercel pull --yes --environment=production --scope=lisangs-projects-b8952959 --token="$VERCEL_TOKEN"
+          npx vercel build --prod --scope=lisangs-projects-b8952959 --token="$VERCEL_TOKEN"
+          npx vercel deploy --prebuilt --prod --scope=lisangs-projects-b8952959 --token="$VERCEL_TOKEN"
 
   # ── 5. 生产冒烟：非破坏性（不注册、不支付）────────────────────
   smoke:
