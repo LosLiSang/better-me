@@ -12,8 +12,8 @@ const SITE = process.env.E2E_SITE_URL ?? "http://localhost:3000";
 let failures = 0;
 
 function check(name, cond, extra = "") {
-  if (cond) console.log(`  ✓ ${name}`);
-  else { failures++; console.log(`  ✗ ${name} ${extra}`); }
+  if (cond) { console.log(`  ✓ ${name}`); return true; }
+  failures++; console.log(`  ✗ ${name} ${extra}`); return false;
 }
 
 const sb = createClient(SB_URL, ANON, {

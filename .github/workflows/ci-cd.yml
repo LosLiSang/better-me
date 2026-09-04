@@ -51,20 +51,22 @@ jobs:
             -e 's/^(export[[:space:]]+)?ANON_KEY=/NEXT_PUBLIC_SUPABASE_ANON_KEY=/p' >> "$GITHUB_ENV"
           grep -q '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' "$GITHUB_ENV" \
             || { echo "::error::未能从 supabase status 提取 ANON_KEY"; exit 1; }
-      - name: 构建 + 启动生产模式服务
+      - name: 构建 + 启动生产模式服务（服务端日志落盘供失败诊断）
         run: |
           npm run build
-          npm run start &
+          npm run start > server.log 2>&1 &
           for i in $(seq 1 30); do
             curl -fsS http://localhost:3000/api/ping >/dev/null 2>&1 && exit 0
             sleep 2
           done
           echo "::error::next start 未在 60s 内就绪"
+          tail -30 server.log
           exit 1
       - name: E2E 全流程（25 项，仅对本地栈）
         env:
           DEMO_PAYMENT_ENABLED: 'true'
-        run: node scripts/e2e-flow.mjs
+        run: |
+          node scripts/e2e-flow.mjs || { echo '────── server.log（服务端错误）──────'; tail -60 server.log; exit 1; }
       - name: 清理
         if: always()
         run: npx supabase stop --no-confirm || true
