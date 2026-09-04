@@ -146,10 +146,11 @@ jobs:
           printf '{"orgId":"%s","projectId":"%s"}' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           echo "诊断：org=${VERCEL_ORG_ID:0:10}… proj=${VERCEL_PROJECT_ID:0:10}… token=$([ -n "$VERCEL_TOKEN" ] && echo 已设 || echo 缺失)"
           cat .vercel/project.json
-          echo "── whoami ──"
-          npx vercel whoami --token="$VERCEL_TOKEN"
-          echo "── 可见项目 ──"
-          npx vercel project ls --token="$VERCEL_TOKEN" 2>&1 | head -8
+          echo "── API 探测（user 端点 vs 项目端点，团队作用域 token 会前者 403/404 后者 200）──"
+          echo "v2/user: $(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://api.vercel.com/v2/user -H "Authorization: Bearer $VERCEL_TOKEN")"
+          echo "v9/projects/better-me: $(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://api.vercel.com/v9/projects/better-me?teamId=$VERCEL_ORG_ID" -H "Authorization: Bearer $VERCEL_TOKEN")"
+          echo "── whoami（仅供参考，不阻断）──"
+          npx vercel whoami --token="$VERCEL_TOKEN" || true
           npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
           npx vercel build --prod --token="$VERCEL_TOKEN"
           npx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
