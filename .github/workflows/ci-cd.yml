@@ -81,7 +81,7 @@ jobs:
   migrate:
     if: >-
       vars.ENABLE_CD == 'true' &&
-      github.event_name == 'push' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       !cancelled() &&
       needs.quality.result == 'success' &&
       needs.integration.result == 'success'
@@ -110,7 +110,7 @@ jobs:
   deploy:
     if: >-
       vars.ENABLE_CD == 'true' &&
-      github.event_name == 'push' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       !cancelled() &&
       needs.quality.result == 'success' &&
       needs.integration.result == 'success' &&
