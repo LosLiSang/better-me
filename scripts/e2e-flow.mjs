@@ -72,13 +72,22 @@ async function api(method, path, body) {
     headers: { "Content-Type": "application/json", Cookie: cookieHeader() },
     body: body ? JSON.stringify(body) : undefined,
   }), "api " + path);
-  let j = null; try { j = await r.json(); } catch {}
-  return { status: r.status, json: j };
+  const text = await r.text();
+  let j = null; try { j = JSON.parse(text); } catch { /* 非 JSON 响应保留原文供诊断 */ }
+  return { status: r.status, json: j, text, contentType: r.headers.get("content-type") ?? "", location: r.headers.get("location") ?? "" };
+}
+
+/** 非 JSON 响应时的诊断摘要 */
+function peek(r) {
+  return JSON.stringify({ status: r.status, ct: r.contentType, location: r.location, body: r.text?.slice(0, 200) });
 }
 
 // 1 开会话
 const s = await api("POST", "/api/session");
-check("开新会话 200", s.status === 200, JSON.stringify(s.json));
+if (!check("开新会话 200", s.status === 200 && !!s.json?.sessionId, s.json ? JSON.stringify(s.json) : peek(s))) {
+  console.error("::error::POST /api/session 诊断：" + peek(s));
+  process.exit(1);
+}
 const sessionId = s.json.sessionId;
 
 // 2 进度恢复（空）
