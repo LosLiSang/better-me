@@ -135,6 +135,9 @@ jobs:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
         run: |
+          # 净化：Windows 终端粘贴可能带入尾部 CR/LF/引号/空格，污染 Authorization 头
+          VERCEL_TOKEN=$(printf '%s' "$VERCEL_TOKEN" | tr -d '\r\n" ')
+          echo "诊断：token-len=${#VERCEL_TOKEN} 末字节=$(printf '%s' "$VERCEL_TOKEN" | tail -c 1 | xxd -p) 前缀=$(printf '%s' "$VERCEL_TOKEN" | cut -c1-3)…"
           # 复制源码到不含 .git 的目录：避免 CLI 附加 git 元数据触发
           # "commit author 无权限" 的 TEAM_ACCESS_REQUIRED 拦截；不改仓库 remote
           rsync -a --exclude .git --exclude node_modules ./ /tmp/deploy-src/
