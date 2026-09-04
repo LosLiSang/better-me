@@ -46,9 +46,9 @@ export function SketchOption({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full text-left px-4 py-3 transition-colors sketch-border-sm tilt-3 hover:rotate-0 ${
+      className={`sketch-option-btn w-full text-left px-4 py-3 transition-all sketch-border-sm tilt-3 hover:rotate-0 ${
         selected
-          ? "bg-[var(--color-marker)]/60 font-bold"
+          ? "option-picked bg-[var(--color-marker)]/60 font-bold"
           : "bg-white/70 hover:bg-[var(--color-sky-soft)]/50"
       }`}
     >
@@ -96,30 +96,73 @@ export function SketchButton({
 /** 反馈批注：手写小纸条（答题后出现） */
 export function FeedbackNote({ text }: { text: string }) {
   return (
-    <div className="fade-up inline-block px-3 py-2 bg-[var(--color-sun-soft)] sketch-border-sm tilt-2 text-[15px] leading-relaxed max-w-[22rem]">
-      <span aria-hidden className="mr-1">✎</span>
-      {text}
+    <div className="relative inline-block">
+      <div className="fade-up inline-block px-3 py-2 bg-[var(--color-sun-soft)] sketch-border-sm tilt-2 text-[15px] leading-relaxed max-w-[22rem]">
+        <span aria-hidden className="mr-1">✎</span>
+        {text}
+      </div>
+      <span className="stamp-in absolute -top-3 -right-4 text-[11px] font-bold text-[var(--color-accent)] border-2 border-[var(--color-accent)] rounded px-1 py-0.5 bg-white/80 pointer-events-none">
+        已记下 ✓
+      </span>
     </div>
   );
 }
 
 /** 进度书签：画在手账边缘的小标签（33 题用小尺寸 + 可换行） */
-export function ProgressBookmarks({ current, total }: { current: number; total: number }) {
+export function ProgressBookmarks({
+  current,
+  total,
+  onJump,
+  isAnswered,
+  answeredLabel,
+}: {
+  current: number;
+  total: number;
+  /** 点击已答圆点回退到那题（不传 = 纯展示不可点） */
+  onJump?: (index: number) => void;
+  /** 第 i 题是否已答：传入后实心=已答可跳（含向前跳回已答题），金色=当前题，空心=未答；缺省退化为 i < current */
+  isAnswered?: (i: number) => boolean;
+  /** 计数文案展示的已答数；缺省用 current */
+  answeredLabel?: number;
+}) {
   const step = Math.min(current, total);
+  const label = answeredLabel ?? step;
   return (
-    <div className="flex items-center gap-1 flex-wrap justify-end max-w-[60%]" aria-label={`进度 ${step}/${total}`}>
-      <span className="digits text-lg mr-1">{step}/{total}</span>
-      <span className="flex flex-wrap gap-[3px] max-w-[220px] justify-end">
-        {Array.from({ length: total }, (_, i) => (
-          <span
-            key={i}
-            className={`h-2 w-2 border border-[var(--color-ink)] ${
-              i < step
-                ? "bg-[var(--color-mint)]"
-                : "bg-white/60"
-            } ${i === step ? "rotate-45 scale-110 bg-[var(--color-sun-deep)]" : ""} transition-transform`}
-          />
-        ))}
+    <div className="flex items-center gap-1.5 flex-wrap justify-end max-w-[60%]" aria-label={`进度 ${label}/${total}`}>
+      <span className="digits text-lg mr-1">{label}/{total}</span>
+      <span className="flex flex-wrap gap-[3px] max-w-[250px] justify-end">
+        {Array.from({ length: total }, (_, i) => {
+          const answered = isAnswered ? isAnswered(i) : i < step;
+          const canJump = !!onJump && i !== step && answered;
+          const dot = (
+            <span
+              className={`inline-block h-[7px] w-[7px] rounded-full align-middle ${
+                i === step
+                  ? "mark-pop bg-[var(--color-sun-deep)]"
+                  : answered
+                    ? "bg-[var(--color-mint)]"
+                    : "bg-[var(--color-paper-dark)] ring-1 ring-[var(--color-pencil-light)]"
+              } transition-transform`}
+            />
+          );
+          return (
+            <span key={`${step}-${i}`} className="p-[2px] leading-none">
+              {canJump ? (
+                <button
+                  type="button"
+                  aria-label={`回到第 ${i + 1} 题修改`}
+                  title={`回到第 ${i + 1} 题修改`}
+                  onClick={() => onJump(i)}
+                  className="block cursor-pointer hover:scale-150 transition-transform"
+                >
+                  {dot}
+                </button>
+              ) : (
+                dot
+              )}
+            </span>
+          );
+        })}
       </span>
     </div>
   );

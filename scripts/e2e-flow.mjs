@@ -103,6 +103,7 @@ const r1 = await api("GET", `/api/session/${sessionId}/result`);
 check("非会员 locked:true", r1.json.locked === true);
 check("非会员拿不到 predictionCurve", !("predictionCurve" in r1.json.data) && !("weeklyRateKg" in r1.json.data));
 check("非会员可见 BMI", typeof r1.json.data.bmi === "number");
+check("非会员计划仅 Day1 预览", r1.json.data.plan && r1.json.data.plan.totalDays === 30 && r1.json.data.plan.previewDays.length === 1, JSON.stringify(r1.json.data.plan && r1.json.data.plan.totalDays));
 
 // 7 upgrade（每次运行用唯一邮箱，避免上轮已注册）
 const email = `e2e-${Date.now()}@example.com`;
@@ -120,6 +121,8 @@ const r2 = await api("GET", `/api/session/${sessionId}/result`);
 check("会员 locked:false", r2.json.locked === false);
 check("会员拿到完整 predictionCurve", Array.isArray(r2.json.data.predictionCurve) && r2.json.data.predictionCurve.length === 15);
 check("会员拿到 weeklyRateKg", r2.json.data.weeklyRateKg === -0.5);
+check("会员拿到完整 30 天计划", r2.json.data.plan && r2.json.data.plan.previewDays.length === 30);
+check("计划日卡结构完整", (() => { const d0 = r2.json.data.plan.previewDays[0]; return d0.day === 1 && d0.workout.items.length > 0 && d0.meals.length >= 3 && d0.tip.length > 0; })());
 
 // 10 越权：新建另一匿名用户访问同一 session
 const sb2 = createClient(URL, ANON, {
@@ -132,7 +135,8 @@ const sb2 = createClient(URL, ANON, {
     },
   },
 });
-const { data: anon2 } = await sb2.auth.signInAnonymously();
+const { error: anon2Err } = await sb2.auth.signInAnonymously();
+if (anon2Err) throw new Error("第二个匿名用户登录失败：" + anon2Err.message);
 const raw2 = `sb-127-auth-token=base64-${btoa(unescape(encodeURIComponent(sb2.auth.storage._s)))}`;
 const r3 = await fetch(SITE + `/api/session/${sessionId}/result`, {
   headers: { Cookie: raw2 },

@@ -12,7 +12,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { QUIZ_QUESTIONS } from "@/lib/quiz/config";
 import type { QuizQuestion, QuizOption } from "@/lib/quiz/types";
-import { ensureSession, getStoredSessionId } from "@/lib/supabase/client";
+import { ensureSession, getStoredSessionId, clearStoredSessionId } from "@/lib/supabase/client";
+import { QuizSidebarLeft, QuizSidebarRight } from "@/components/quiz-side";
 import {
   PaperCard,
   Marker,
@@ -66,6 +67,22 @@ const INTERSTITIALS: Record<number, { eyebrow: string; title: string; sub: strin
 
 const FEEDBACK_MS = 1100;
 
+/** 分组 emoji（生动性；不改题库结构，前端映射） */
+const GROUP_EMOJI: Record<string, string> = {
+  gender: "🚻", age: "🎂", goal: "🎯", height: "📏", weight: "⚖️",
+  target_weight: "🏁", activity_frequency: "🏃",
+  physical_build: "🧍", dream_body: "💫", weight_change: "📈",
+  best_shape_ago: "⏳", weight_gain_causes: "🌊", other_goals: "✨",
+  daily_activity: "🪑", energy_levels: "🔋", walk_freq: "🚶",
+  exercise_freq: "🏋️", exercise_time: "⏱️", desired_freq: "📆",
+  preferred_time: "🌅", workout_comfort: "😌",
+  shortness_breath: "💨", discomfort_areas: "🩹", sleep_quality: "😴",
+  stress_level: "🧘", injury_history: "🤕",
+  nutrition_habit: "🥗", food_cravings: "😋", meal_planning: "📝",
+  diet_type: "🍽️", fasting_knowledge: "📖", meals_per_day: "🥢",
+  emotional_eating: "🎭",
+};
+
 export default function QuizFlow() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("loading");
@@ -86,8 +103,19 @@ export default function QuizFlow() {
   const bootstrap = useCallback(async () => {
     try {
       const sessionId = await ensureSession();
-      const res = await fetch(`/api/session/${sessionId}`);
-      if (!res.ok) throw new Error("进度恢复失败");
+      let res = await fetch(`/api/session/${sessionId}`);
+      // 防御：若这次 GET 竞态失败（401/404），清本地后重建，重建后按空进度渲染
+      if (!res.ok) {
+        clearStoredSessionId();
+        const retryId = await ensureSession();
+        res = await fetch(`/api/session/${retryId}`);
+        if (!res.ok) throw new Error("进度恢复失败");
+        setAnswers({});
+        setIndex(0);
+        setInterstitialAt(INTERSTITIALS[0] ? 0 : null);
+        setPhase("question");
+        return;
+      }
       const data = (await res.json()) as {
         currentStep: number;
         answers: Record<string, SavedAnswer>;
@@ -215,6 +243,8 @@ export default function QuizFlow() {
         : { value: Number(numberDraft) };
     try {
       await saveStep(q.key, value);
+      // 本地同步记账：数字/多选题此前不写 answers，账本/小抄不会实时更新
+      setAnswers((prev) => ({ ...prev, [q.key]: value }));
       const opt = q.options?.find((o: QuizOption) => String(o.value) === String(q.type === "multi" ? multiDraft[0] : Number(numberDraft)));
       if (opt) {
         setFeedback(opt.feedback);
@@ -228,6 +258,26 @@ export default function QuizFlow() {
     }
   }, [q, multiDraft, numberDraft, advance, saveStep]);
 
+  /** 跳到已答过的题修改：前后都可跳（目标必须已答）；草稿从已存答案预填，重交幂等 upsert */
+  const goBackTo = useCallback(
+    (target: number) => {
+      if (phase !== "question") return;
+      if (target < 0 || target >= total || target === index) return;
+      if (!answers[QUIZ_QUESTIONS[target].key]) return;
+      const targetQ = QUIZ_QUESTIONS[target];
+      setFeedback(null);
+      setNumberDraft(
+        targetQ.type === "number" && typeof answers[targetQ.key]?.value === "number"
+          ? String(answers[targetQ.key]!.value)
+          : ""
+      );
+      setMultiDraft(targetQ.type === "multi" ? (answers[targetQ.key]?.values ?? []) : []);
+      setIndex(target);
+      setPhase("question");
+    },
+    [phase, index, total, answers]
+  );
+
   // ── 渲染 ──────────────────────────────────────────────
   if (phase === "loading")
     return (
@@ -238,7 +288,8 @@ export default function QuizFlow() {
       </main>
     );
 
-  if (phase === "error")
+  // 启动期失败（无题目上下文）→ 保留全屏错误；答题中失败 → 走底部弹窗，不整页替换
+  if (phase === "error" && !q)
     return (
       <main className="min-h-screen grid place-items-center p-6">
         <PaperCard className="p-8 max-w-md text-center" tilt={1}>
@@ -287,28 +338,41 @@ export default function QuizFlow() {
     );
   }
 
-  if (phase !== "question" || !q) return null;
+  if (!(phase === "question" || phase === "error") || !q) return null;
 
   return (
-    <main className="min-h-screen p-6 flex flex-col items-center">
-      <div className="w-full max-w-lg">
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-sm text-[var(--color-pencil)] underline-sketch">Better Me 手账</span>
-          <ProgressBookmarks current={index} total={total} />
+    <main className="min-h-screen p-6 flex">
+      <div className="my-auto w-full mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)_240px] gap-6">
+        {/* 左翼：阶段标签 + 进度账本（窄屏隐藏） */}
+        <div className="hidden md:block md:justify-self-end w-full max-w-[240px]">
+          <QuizSidebarLeft index={index} answers={answers} />
         </div>
 
-        <PaperCard className="p-6" tilt={index % 2 === 0 ? 1 : 2}>
-          <h2 className="text-2xl font-bold mb-1">
-            {q.question}
-            {q.numeric && (
-              <span className="ml-2 text-sm text-[var(--color-pencil)]">
-                （{q.numeric.min}–{q.numeric.max} {q.numeric.unit}）
-              </span>
+        {/* 中央答题卡 */}
+        <div className="w-full max-w-lg mx-auto">
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-sm text-[var(--color-pencil)] underline-sketch">Better Me 手账</span>
+            <ProgressBookmarks
+              current={index}
+              total={total}
+              onJump={goBackTo}
+              isAnswered={(i) => !!answers[QUIZ_QUESTIONS[i].key]}
+              answeredLabel={Object.keys(answers).length}
+            />
+          </div>
+
+          <PaperCard className="p-6" tilt={index % 2 === 0 ? 1 : 2}>
+            <h2 className="text-2xl font-bold mb-1">
+              <span className="mr-1">{GROUP_EMOJI[q.key] ?? "📌"}</span>{q.question}
+              {q.numeric && (
+                <span className="ml-2 text-sm text-[var(--color-pencil)]">
+                  （{q.numeric.min}–{q.numeric.max} {q.numeric.unit}）
+                </span>
+              )}
+            </h2>
+            {!q.required && (
+              <p className="text-xs text-[var(--color-pencil-light)] mb-2">这题选填</p>
             )}
-          </h2>
-          {!q.required && (
-            <p className="text-xs text-[var(--color-pencil-light)] mb-2">这题选填</p>
-          )}
 
           {/* 单选 / 量表 */}
           {(q.type === "single" || q.type === "likert") && (
@@ -326,7 +390,18 @@ export default function QuizFlow() {
 
           {/* 数字输入 */}
           {q.type === "number" && (
-            <div className="mt-4 flex items-end gap-3">
+            <div className="mt-4">
+            {typeof answers.height?.value === "number" &&
+              typeof answers.weight?.value === "number" &&
+              q.key !== "height" && (
+                <p className="text-sm text-[var(--color-pencil)] mb-2 fade-up">
+                  小抄：身高 {answers.height!.value}cm + 体重 {answers.weight!.value}kg
+                  → BMI 约 <span className="digits text-lg text-[var(--color-accent)]">
+                    {(answers.weight!.value / Math.pow(answers.height!.value / 100, 2)).toFixed(1)}
+                  </span>
+                </p>
+              )}
+            <div className="flex items-end gap-3">
               <input
                 type="number"
                 inputMode="decimal"
@@ -343,6 +418,7 @@ export default function QuizFlow() {
                 </SketchButton>
               </span>
             </div>
+            </div>
           )}
 
           {/* 多选 */}
@@ -356,13 +432,18 @@ export default function QuizFlow() {
                   onClick={() => toggleMulti(o.value, o.exclusive)}
                 />
               ))}
-              <div className="pt-2">
+              <div className="pt-2 flex items-center gap-3">
                 <SketchButton
                   disabled={multiDraft.length === 0}
                   onClick={submitCurrent}
                 >
                   下一步
                 </SketchButton>
+                {multiDraft.length > 0 && (
+                  <span className="text-sm text-[var(--color-pencil)] fade-up">
+                    已选 <span className="digits text-lg">{multiDraft.length}</span> 项
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -376,7 +457,27 @@ export default function QuizFlow() {
         <p className="mt-4 text-center text-xs text-[var(--color-pencil-light)]">
           答案实时保存在本会话手账中，中途关掉也能 <Marker>从上次的地方继续</Marker>
         </p>
+        </div>
+
+        {/* 右翼：小抄 + 橡皮章计数 + 鼓励语（窄屏隐藏） */}
+        <div className="hidden md:block md:justify-self-start w-full max-w-[240px]">
+          <QuizSidebarRight index={index} answers={answers} />
+        </div>
       </div>
+
+      {/* 答题中出错：弹窗覆盖在当前题上，不整页替换 */}
+      {phase === "error" && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-6 bg-[var(--color-ink)]/25 backdrop-blur-[2px]">
+          <PaperCard className="p-8 max-w-md w-full text-center" tilt={1} tidy>
+            <p className="text-lg mb-3">出了点小状况</p>
+            <p className="text-sm text-[var(--color-pencil)] mb-5 leading-relaxed">{errMsg}</p>
+            <div className="flex justify-center gap-3">
+              <SketchButton onClick={() => { setPhase("loading"); bootstrap(); }}>重试</SketchButton>
+              <SketchButton onClick={() => setPhase("question")}>先继续答题</SketchButton>
+            </div>
+          </PaperCard>
+        </div>
+      )}
     </main>
   );
 }
