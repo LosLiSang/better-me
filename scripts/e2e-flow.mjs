@@ -6,7 +6,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 // 支持指向任意环境（本地栈/生产）：E2E_SUPABASE_URL + E2E_SITE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY
-const URL = process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321";
+const SB_URL = process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const SITE = process.env.E2E_SITE_URL ?? "http://localhost:3000";
 let failures = 0;
@@ -16,7 +16,7 @@ function check(name, cond, extra = "") {
   else { failures++; console.log(`  ✗ ${name} ${extra}`); }
 }
 
-const sb = createClient(URL, ANON, {
+const sb = createClient(SB_URL, ANON, {
   auth: {
     storage: {
       // 自定义 storage 捕获最新会话，供渲染 SSR cookie
@@ -30,7 +30,7 @@ const sb = createClient(URL, ANON, {
 
 // @supabase/ssr 的 cookie 名由 Supabase URL 首段推导：127.0.0.1 → sb-127-auth-token；
 // 云项目 → sb-<project-ref>-auth-token
-const COOKIE_NAME = `sb-${new URL(URL).hostname.split(".")[0]}-auth-token`;
+const COOKIE_NAME = `sb-${new URL(SB_URL).hostname.split(".")[0]}-auth-token`;
 function cookieHeader(storage = sb.auth.storage) {
   const raw = storage._s;
   if (!raw) return "";
@@ -128,7 +128,7 @@ check("会员拿到完整 30 天计划", r2.json.data.plan && r2.json.data.plan.
 check("计划日卡结构完整", (() => { const d0 = r2.json.data.plan.previewDays[0]; return d0.day === 1 && d0.workout.items.length > 0 && d0.meals.length >= 3 && d0.tip.length > 0; })());
 
 // 10 越权：新建另一匿名用户访问同一 session
-const sb2 = createClient(URL, ANON, {
+const sb2 = createClient(SB_URL, ANON, {
   auth: {
     storage: {
       _s: null,
