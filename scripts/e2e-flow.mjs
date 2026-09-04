@@ -104,9 +104,13 @@ check("重复 complete 409", c2.status === 409);
 // 6 result 脱敏
 const r1 = await api("GET", `/api/session/${sessionId}/result`);
 check("非会员 locked:true", r1.json.locked === true);
-check("非会员拿不到 predictionCurve", !("predictionCurve" in r1.json.data) && !("weeklyRateKg" in r1.json.data));
-check("非会员可见 BMI", typeof r1.json.data.bmi === "number");
-check("非会员计划仅 Day1 预览", r1.json.data.plan && r1.json.data.plan.totalDays === 30 && r1.json.data.plan.previewDays.length === 1, JSON.stringify(r1.json.data.plan && r1.json.data.plan.totalDays));
+if (!r1.json.data) {
+  check("非会员脱敏响应", false, JSON.stringify(r1.json));
+} else {
+  check("非会员拿不到 predictionCurve", !("predictionCurve" in r1.json.data) && !("weeklyRateKg" in r1.json.data));
+  check("非会员可见 BMI", typeof r1.json.data.bmi === "number");
+  check("非会员计划仅 Day1 预览", r1.json.data.plan && r1.json.data.plan.totalDays === 30 && r1.json.data.plan.previewDays.length === 1, JSON.stringify(r1.json.data.plan && r1.json.data.plan.totalDays));
+}
 
 // 7 upgrade（每次运行用唯一邮箱，避免上轮已注册）
 const email = `e2e-${Date.now()}@example.com`;
