@@ -93,8 +93,53 @@ export default function QuizFlow() {
   const [numberDraft, setNumberDraft] = useState("");
   const [multiDraft, setMultiDraft] = useState<string[]>([]);
   const [interstitialAt, setInterstitialAt] = useState<number | null>(null);
+  const [saveIssue, setSaveIssue] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bootRef = useRef(false);
+  const pendingSaves = useRef<Set<Promise<void>>>(new Set());
+  const lastFailed = useRef<{ key: string; value: SavedAnswer } | null>(null);
+
+  /** 后台保存答案（不阻塞前进）：网络/5xx 失败自动重试，业务校验失败静默，彻底失败置 saveIssue */
+  const persistAnswer = useCallback((key: string, value: SavedAnswer) => {
+    const sessionId = getStoredSessionId();
+    if (!sessionId) return Promise.resolve();
+    const p = (async () => {
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        try {
+          const res = await fetch(`/api/session/${sessionId}/step`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stepKey: key, answerValue: value }),
+          });
+          if (res.ok) {
+            if (lastFailed.current?.key === key) { lastFailed.current = null; setSaveIssue(false); }
+            return;
+          }
+          // 4xx 业务校验失败：前端已拦一道，静默
+          if (res.status >= 400 && res.status < 500) return;
+          // 5xx → 重试
+        } catch {
+          // 网络异常 → 重试
+        }
+        await new Promise((r) => setTimeout(r, 900 * attempt));
+      }
+      lastFailed.current = { key, value };
+      setSaveIssue(true);
+    })();
+    pendingSaves.current.add(p);
+    void p.finally(() => { pendingSaves.current.delete(p); });
+    return p;
+  }, []);
+
+  /** complete 前确保所有在途保存落库 */
+  const flushSaves = useCallback(async () => {
+    await Promise.allSettled([...pendingSaves.current]);
+  }, []);
+
+  /** 手动重试上次失败的保存 */
+  const retryFailedSave = useCallback(() => {
+    if (lastFailed.current) persistAnswer(lastFailed.current.key, lastFailed.current.value);
+  }, [persistAnswer]);
 
   const q: QuizQuestion | undefined = QUIZ_QUESTIONS[index];
   const total = QUIZ_QUESTIONS.length;
@@ -160,18 +205,20 @@ export default function QuizFlow() {
       setMultiDraft([]);
       const next = index + 1;
       if (next >= total) {
-        // 全部答完 → complete → 跳结果页
+        // 全部答完 → 先把在途保存落库，再 complete → 跳结果页
         setPhase("submitting");
         const sessionId = getStoredSessionId()!;
-        fetch(`/api/session/${sessionId}/complete`, { method: "POST" })
-          .then((r) => {
+        (async () => {
+          try {
+            await flushSaves();
+            const r = await fetch(`/api/session/${sessionId}/complete`, { method: "POST" });
             if (!r.ok) throw new Error("计算失败 " + r.status);
             router.push(`/results?session=${sessionId}`);
-          })
-          .catch((e) => {
+          } catch (e) {
             setErrMsg((e as Error).message);
             setPhase("error");
-          });
+          }
+        })();
         return;
       }
       if (INTERSTITIALS[next]) {
@@ -182,23 +229,7 @@ export default function QuizFlow() {
         setPhase("question");
       }
     },
-    [index, total, router]
-  );
-
-  const saveStep = useCallback(
-    async (key: string, value: SavedAnswer) => {
-      const sessionId = getStoredSessionId()!;
-      const res = await fetch(`/api/session/${sessionId}/step`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stepKey: key, answerValue: value }),
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { detail?: string[] };
-        throw new Error(j.detail?.join("; ") || `保存失败 ${res.status}`);
-      }
-    },
-    []
+    [index, total, router, flushSaves]
   );
 
   /** 选中 single/likert：立即反馈 + 停留后自动前进 */
@@ -208,16 +239,11 @@ export default function QuizFlow() {
       const value = { value: optValue };
       setAnswers((prev) => ({ ...prev, [q.key]: value }));
       setFeedback(optFeedback);
-      timerRef.current = setTimeout(() => {
-        saveStep(q.key, value)
-          .then(() => advance())
-          .catch((e) => {
-            setErrMsg((e as Error).message);
-            setPhase("error");
-          });
-      }, FEEDBACK_MS);
+      // 保存放后台（带重试），前进不再被网络卡住
+      persistAnswer(q.key, value);
+      timerRef.current = setTimeout(() => advance(), FEEDBACK_MS);
     },
-    [q, phase, advance, saveStep]
+    [q, phase, advance, persistAnswer]
   );
 
   const toggleMulti = useCallback(
@@ -235,28 +261,23 @@ export default function QuizFlow() {
     [q]
   );
 
-  const submitCurrent = useCallback(async () => {
+  const submitCurrent = useCallback(() => {
     if (!q) return;
     const value: SavedAnswer =
       q.type === "multi"
         ? { values: multiDraft }
         : { value: Number(numberDraft) };
-    try {
-      await saveStep(q.key, value);
-      // 本地同步记账：数字/多选题此前不写 answers，账本/小抄不会实时更新
-      setAnswers((prev) => ({ ...prev, [q.key]: value }));
-      const opt = q.options?.find((o: QuizOption) => String(o.value) === String(q.type === "multi" ? multiDraft[0] : Number(numberDraft)));
-      if (opt) {
-        setFeedback(opt.feedback);
-        timerRef.current = setTimeout(() => advance(), 900);
-      } else {
-        advance();
-      }
-    } catch (e) {
-      setErrMsg((e as Error).message);
-      setPhase("error");
+    // 本地同步记账 + 后台保存（带重试），前进不被网络卡住
+    setAnswers((prev) => ({ ...prev, [q.key]: value }));
+    persistAnswer(q.key, value);
+    const opt = q.options?.find((o: QuizOption) => String(o.value) === String(q.type === "multi" ? multiDraft[0] : Number(numberDraft)));
+    if (opt) {
+      setFeedback(opt.feedback);
+      timerRef.current = setTimeout(() => advance(), 900);
+    } else {
+      advance();
     }
-  }, [q, multiDraft, numberDraft, advance, saveStep]);
+  }, [q, multiDraft, numberDraft, advance, persistAnswer]);
 
   /** 跳到已答过的题修改：前后都可跳（目标必须已答）；草稿从已存答案预填，重交幂等 upsert */
   const goBackTo = useCallback(
@@ -452,6 +473,13 @@ export default function QuizFlow() {
           <div className="min-h-[3.2rem] mt-4">
             {feedback && <FeedbackNote text={feedback} />}
           </div>
+          {/* 保存失败提示：不阻塞答题，可手动重试 */}
+          {saveIssue && (
+            <p className="mt-1 text-xs text-[var(--color-accent)]">
+              刚才有答案没存上，网络恢复后点此重试：{" "}
+              <button type="button" onClick={() => retryFailedSave()} className="underline">重试保存</button>
+            </p>
+          )}
         </PaperCard>
 
         <p className="mt-4 text-center text-xs text-[var(--color-pencil-light)]">
