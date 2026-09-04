@@ -27,7 +27,7 @@ export async function GET(
   const { data: result } = await supabase
     .from("assessment_result")
     .select(
-      "bmi, bmi_category, recommended_calories, target_date, prediction_curve, algorithm_version, calculated_at"
+      "bmi, bmi_category, recommended_calories, target_date, prediction_curve, plan_30d, algorithm_version, calculated_at"
     )
     .eq("session_id", id)
     .single();
@@ -40,6 +40,15 @@ export async function GET(
     .single();
 
   const unlocked = isSubscriptionActive(sub);
+
+  // 30 天计划：非会员仅 Day1 预览（其余 29 天物理不可见）
+  const planFull = result.plan_30d as { version: string; days: unknown[] } | null;
+  const plan = planFull
+    ? unlocked
+      ? { totalDays: planFull.days.length, previewDays: planFull.days }
+      : { totalDays: planFull.days.length, previewDays: planFull.days.slice(0, 1) }
+    : null;
+
   const payload = {
     bmi: result.bmi,
     bmiCategory: result.bmi_category,
@@ -49,6 +58,7 @@ export async function GET(
     weeklyRateKg: undefined as number | undefined,
     algorithmVersion: result.algorithm_version,
     calculatedAt: result.calculated_at,
+    plan,
   };
   // weeklyRateKg 与曲线同源：从曲线首末差推回（不重复存列）
   const curve = result.prediction_curve as { week: number; weightKg: number }[];

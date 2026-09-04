@@ -73,6 +73,7 @@ export type Database = {
           bmi_category: string
           calculated_at: string
           id: string
+          plan_30d: Json | null
           prediction_curve: Json
           recommended_calories: number
           session_id: string
@@ -84,6 +85,7 @@ export type Database = {
           bmi_category: string
           calculated_at?: string
           id?: string
+          plan_30d?: Json | null
           prediction_curve: Json
           recommended_calories: number
           session_id: string
@@ -95,6 +97,7 @@ export type Database = {
           bmi_category?: string
           calculated_at?: string
           id?: string
+          plan_30d?: Json | null
           prediction_curve?: Json
           recommended_calories?: number
           session_id?: string

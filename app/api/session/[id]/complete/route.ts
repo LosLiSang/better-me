@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser, jsonError } from "@/lib/api/helpers";
 import { assess, ALGORITHM_VERSION, type AssessInput, type Gender, type Goal, type ActivityFrequency } from "@/lib/health/assess";
 import { REQUIRED_CALC_KEYS } from "@/lib/quiz/config";
+import { generateMonthPlan, type PlanExtras } from "@/lib/plan/daily";
 
 /**
  * POST /api/session/[id]/complete —— 触发服务端计算。
@@ -56,6 +57,22 @@ export async function POST(
     );
   }
 
+  // 生成 30 天每日计划（会员核心内容；确定性纯函数）
+  const arr = (k: string): string[] => {
+    const v = byKey.get(k)?.value;
+    return Array.isArray(v) ? (v as string[]) : typeof v === "string" && v ? [v] : [];
+  };
+  const extras: PlanExtras = {
+    discomforts: arr("discomfort_areas"),
+    injuries: arr("injury_history"),
+    dietType: String(byKey.get("diet_type")?.value ?? "traditional"),
+    mealsPerDay: String(byKey.get("meals_per_day")?.value ?? "3"),
+    cravings: arr("food_cravings"),
+    exerciseTime: String(byKey.get("exercise_time")?.value ?? "20_40"),
+    desiredFreq: String(byKey.get("desired_freq")?.value ?? "3_5"),
+  };
+  const plan = generateMonthPlan({ core: input, calories: result.recommendedCalories, extras });
+
   const { data: inserted, error: insErr } = await supabase
     .from("assessment_result")
     .upsert(
@@ -66,6 +83,7 @@ export async function POST(
         recommended_calories: result.recommendedCalories,
         target_date: result.targetDate,
         prediction_curve: JSON.parse(JSON.stringify(result.predictionCurve)),
+        plan_30d: JSON.parse(JSON.stringify(plan)),
         algorithm_version: ALGORITHM_VERSION,
       },
       { onConflict: "session_id" }
