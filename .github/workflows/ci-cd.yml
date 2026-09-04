@@ -1,0 +1,156 @@
+name: ci-cd
+
+# 触发：PR 只做检查；master push 全量（含迁移+部署，CD 受 ENABLE_CD 变量门控）；支持手动触发
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# 同分支新 push 取消未完成的旧检查（pull_request 场景）；master push 不取消，保护在途部署
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ── 1. 静态质量：类型 / lint / 单测 / 构建 ─────────────────────
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  # ── 2. 集成：本地 Supabase 栈 + 迁移重放 + 25 项 E2E（仅本地栈） ──
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: 启动本地 Supabase 栈（排除重服务加速，失败回退全量）
+        run: |
+          npx supabase start -x studio,imgproxy,inbucket,storage-api,vector,meta,analytics,edge-runtime,pooler \
+            || npx supabase start
+      - name: 重放迁移，验证迁移链完整
+        run: npx supabase db reset
+      - name: 运行时提取本地栈环境变量（不硬编码任何 key）
+        run: |
+          npx supabase status -o env | sed -n \
+            -e 's/^export API_URL=/NEXT_PUBLIC_SUPABASE_URL=/p' \
+            -e 's/^export ANON_KEY=/NEXT_PUBLIC_SUPABASE_ANON_KEY=/p' >> "$GITHUB_ENV"
+      - name: 构建 + 启动生产模式服务
+        run: |
+          npm run build
+          npm run start &
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:3000/api/ping >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "::error::next start 未在 60s 内就绪"
+          exit 1
+      - name: E2E 全流程（25 项，仅对本地栈）
+        env:
+          DEMO_PAYMENT_ENABLED: 'true'
+        run: node scripts/e2e-flow.mjs
+      - name: 清理
+        if: always()
+        run: npx supabase stop --no-confirm || true
+
+  # ── 3. 生产迁移：先于代码部署（先 dry-run 校验）─────────────────
+  migrate:
+    if: >-
+      vars.ENABLE_CD == 'true' &&
+      github.event_name == 'push' &&
+      !cancelled() &&
+      needs.quality.result == 'success' &&
+      needs.integration.result == 'success'
+    needs: [quality, integration]
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: dry-run 校验后推送迁移（完整连接串走 Secret，不在日志拼 URL）
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          npx supabase db push --dry-run --db-url "$SUPABASE_DB_URL"
+          npx supabase db push --db-url "$SUPABASE_DB_URL"
+
+  # ── 4. 生产部署：Vercel prebuilt（在不含 .git 的临时目录执行）────
+  deploy:
+    if: >-
+      vars.ENABLE_CD == 'true' &&
+      github.event_name == 'push' &&
+      !cancelled() &&
+      needs.quality.result == 'success' &&
+      needs.integration.result == 'success' &&
+      (needs.migrate.result == 'success' || needs.migrate.result == 'skipped')
+    needs: [quality, integration, migrate]
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Vercel 构建 + 部署
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+        run: |
+          # 复制源码到不含 .git 的目录：避免 CLI 附加 git 元数据触发
+          # "commit author 无权限" 的 TEAM_ACCESS_REQUIRED 拦截；不改仓库 remote
+          rsync -a --exclude .git --exclude node_modules ./ /tmp/deploy-src/
+          cd /tmp/deploy-src
+          npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx vercel build --prod --token="$VERCEL_TOKEN"
+          npx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+  # ── 5. 生产冒烟：非破坏性（不注册、不支付）────────────────────
+  smoke:
+    if: >-
+      !cancelled() &&
+      needs.deploy.result == 'success'
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 生产非破坏性冒烟（GitHub runner 无网络阻断）
+        run: |
+          B=https://better-me-jet-omega.vercel.app
+          curl --fail --retry 5 --retry-delay 5 -sS -o /dev/null "$B/api/ping"
+          code_home=$(curl -sS --retry 3 -o /dev/null -w '%{http_code}' "$B/")
+          echo "home: $code_home"
+          [ "$code_home" = "200" ]
+          code_unauth=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$B/api/session")
+          echo "POST /api/session (无凭据): $code_unauth"
+          [ "$code_unauth" = "401" ]
