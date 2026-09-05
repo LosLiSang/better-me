@@ -1,3 +1,4 @@
+import fs from "node:fs";
 // 视觉验证：复现 CurveChart 平滑化后的几何（与组件同源算法）
 const w = 340, h = 150, pad = 26;
 // 与截图同源：+0.25kg/周 × 284 周，起点 60
@@ -48,5 +49,5 @@ ${labels}
 </svg>
 <div style='font-size:12px'>计划速率：<span style='background:#fde9a9'>+0.25 kg/周</span></div>
 </div>`;
-require("fs").writeFileSync("C:/Users/lxtoa/AppData/Local/Temp/curve-test.html", html);
+fs.writeFileSync("C:/Users/lxtoa/AppData/Local/Temp/curve-test.html", html);
 console.log("marks:", marks.map(m => m.week).join(","), "| 终点:", maxX, "| 采样点:", sampled.length);
