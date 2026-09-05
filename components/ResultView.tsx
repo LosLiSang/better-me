@@ -46,7 +46,25 @@ const BMI_CN: Record<string, string> = {
   obese: "肥胖",
 };
 
-/** 手绘曲线：面积 + 里程碑点 + 起止标注（点数<2 由调用方降级） */
+/** Catmull-Rom → 三次贝塞尔：把采样点列变成平滑曲线（无硬折角） */
+function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return "";
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
+/** 手绘曲线：平滑面积 + 里程碑点 + 起止标注（点数<2 由调用方降级） */
 export function CurveChart({ curve }: { curve: CurvePoint[] }) {
   const w = 340;
   const h = 150;
@@ -62,32 +80,41 @@ export function CurveChart({ curve }: { curve: CurvePoint[] }) {
   const spanY = Math.max(maxY - minY, 0.5);
   const px = (wk: number) => pad + ((wk - minX) / (maxX - minX)) * (w - pad * 2);
   const py = (kg: number) => h - pad - ((kg - (minY - 0.5)) / (spanY + 1)) * (h - pad * 2);
-  const line = sampled.map((p) => `${px(p.week).toFixed(1)},${py(p.weightKg).toFixed(1)}`).join(" ");
-  const area = `${px(sampled[0].week)},${h - pad} ${line} ${px(sampled[sampled.length - 1].week)},${h - pad}`;
+  const pts = sampled.map((p) => ({ x: px(p.week), y: py(p.weightKg) }));
+  const d = smoothPath(pts);
+  const x0 = px(sampled[0].week);
+  const xN = px(sampled[sampled.length - 1].week);
+  const area = `${d} L ${xN.toFixed(1)} ${h - pad} L ${x0.toFixed(1)} ${h - pad} Z`;
 
-  // 里程碑：每 N 周取一个点（≤6 个）
+  // 里程碑：每 N 周取一个点（≤6 个）；距终点不足半步的刻度点丢弃，避免与终点标注叠字
   const step = Math.max(1, Math.floor((maxX - minX) / 5));
-  const marks = sampled.filter((p) => p.week % step === 0 || p.week === maxX);
+  const marks = sampled.filter((p) => p.week === maxX || (p.week % step === 0 && maxX - p.week >= step / 2));
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-full draw-in" style={{ ["--dash" as string]: 1200 }}>
-      <polygon points={area} fill="var(--color-sky-soft)" opacity="0.45" />
-      <polyline
-        points={line}
+      <path d={area} fill="var(--color-sky-soft)" opacity="0.45" stroke="none" />
+      <path
+        d={d}
         fill="none"
         stroke="var(--color-sky-deep)"
         strokeWidth="3"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {marks.map((m) => (
-        <g key={m.week}>
-          <circle cx={px(m.week)} cy={py(m.weightKg)} r="4" fill="white" stroke="var(--color-ink)" strokeWidth="2" />
-          <text x={px(m.week)} y={py(m.weightKg) - 8} fontSize="10" textAnchor="middle" fill="var(--color-pencil)">
-            {m.weightKg.toFixed(0)}
-          </text>
-        </g>
-      ))}
+      {marks.map((m) => {
+        const isLast = m.week === maxX;
+        return (
+          <g key={m.week}>
+            <circle cx={px(m.week)} cy={py(m.weightKg)} r="4" fill="white" stroke="var(--color-ink)" strokeWidth="2" />
+            {/* 终点不标数字：右上角「目标 xxx kg」已表达，避免叠字 */}
+            {!isLast && (
+              <text x={px(m.week)} y={py(m.weightKg) - 8} fontSize="10" textAnchor="middle" fill="var(--color-pencil)">
+                {m.weightKg.toFixed(0)}
+              </text>
+            )}
+          </g>
+        );
+      })}
       <text x={pad} y={14} fontSize="12" fill="var(--color-pencil)">
         起点 {ys[0].toFixed(1)} kg
       </text>
