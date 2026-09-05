@@ -8,6 +8,73 @@
 
 **线上地址**：https://better-me-jet-omega.vercel.app
 
+## 整体架构
+
+```mermaid
+flowchart LR
+  subgraph B["浏览器 · Next.js App Router（React 19 · 手绘手账风 UI）"]
+    Q["QuizFlow 问卷状态机<br/>点选即记账 · 后台保存重试 · 断点恢复"]
+    R["ResultView 结果页<br/>锁定/解锁差异化渲染"]
+  end
+  subgraph S["Next.js API Routes（Node · TypeScript）"]
+    direction TB
+    A1["POST /api/session"]
+    A2["GET·POST /api/session/[id]/…<br/>进度 / 分步保存 / complete / result"]
+    A3["POST /api/upgrade"]
+    A4["POST /api/pay"]
+  end
+  subgraph D["Supabase（Postgres + Auth）"]
+    AU["Auth：匿名登录 · 邮箱升级（同一 user_id）"]
+    P[("Postgres · 4 表 · 全表 RLS")]
+  end
+  Q -- "匿名登录（公开 anon key）" --> AU
+  Q -- "ssr cookie" --> A1 & A2
+  R -- "ssr cookie" --> A2 & A4
+  Q -- "ssr cookie" --> A3
+  A1 & A2 & A3 & A4 -- "auth.getUser 校验身份" --> AU
+  A2 -- "数据读写（RLS）" --> P
+  A4 -- "订阅状态读写（RLS）" --> P
+```
+
+分层原则：**浏览器只负责采集与呈现**——数据读写全部经 API Routes（服务端校验 + RLS 双道闸），客户端仅直连 Supabase Auth 做身份；**计算、鉴权、脱敏都在服务端**；进度与状态一致性不依赖前端行为。
+
+## 关键逻辑
+
+**① 身份模型：无感开户 + 无缝升级**
+首访 `signInAnonymously()` 静默创建匿名用户，业务表 `user_id` 直接外键引用 `auth.users`（不建业务用户表）；付费前要求升级正式账号 = `auth.updateUser` 补邮箱密码，**同一 user_id 无缝保留全部测评数据**。
+
+**② 进度推导在服务端，不信任客户端**
+`current_step` = 题库顺序中第一个未作答题（`deriveCurrentStep`）。分步保存经 `UNIQUE(session_id, step_key)` upsert 幂等收敛：乱序、重复、回退提交都不会破坏状态；二次 `complete` 返回 409。
+
+**③ 服务端计算 + 版本化**
+`complete` 先校验 7 个必答题齐全（缺 → 409 + missing 列表），再执行健康评估（BMI 分类 / Mifflin-St Jeor BMR / 建议摄入带下限兑底 / 目标日期 / 预测曲线）与确定性 30 天计划生成器，结果带 `algorithm_version` 落库。
+
+**④ 订阅差异化 = 查询层物理脱敏**
+非会员的 result 查询 select 列表中**根本不含** `prediction_curve` / `plan_30d` 完整值（查不到，而非查出再藏），仅返回 Day1 预览 + 提示；会员窗口 `[starts_at, expires_at)` 内返回完整数据。`weeklyRateKg` 从曲线首末差推回，不重复存列。
+
+**⑤ 支付幂等 + 暴露面治理**
+`/api/pay` 以 `payment_event_id` 唯一约束保幂等，续期从 `max(now, expires_at)` 顺延不缩短；匿名用户拒绝（403）；模拟支付由服务端开关 `DEMO_PAYMENT_ENABLED` 治理（默认关闭返回 501，公开演示环境显式开启）。
+
+**⑥ 前端提交时机：非阻塞 + 后台重试**
+点选立即本地记账并前进（不等网络）；保存后台带退避重试，彻底失败才提示可手动重试；`complete` 前统一 flush 在途保存。恢复时先验证登录态、再校验旧 sessionId 归属，stale 会话自动重建（修「中断后回跳」）。
+
+## API 一览
+
+所有业务接口需 `Cookie`（@supabase/ssr 会话）；跨用户访问一律 404（不泄露存在性）。
+
+| 方法 | 路径 | 鉴权 | 说明 | 成功响应 | 关键错误 |
+|---|---|---|---|---|---|
+| POST | /api/session | 匿名+ | 开会话 | `{sessionId, currentStep}` | 500 |
+| GET | /api/session/[id] | 属主 | 进度 + 已答内容 | `{sessionId, status, quizVersion, currentStep, answers}` | 404 session_not_found |
+| POST | /api/session/[id]/step | 属主 | 分步保存（幂等 upsert）| `{currentStep}` | 400 invalid_answer / cross_validation_failed；409 session_completed |
+| POST | /api/session/[id]/complete | 属主 | 服务端计算 + 落库 | `{resultId}` | 409 already_completed / required_steps_missing |
+| GET | /api/session/[id]/result | 属主 | 差异化返回（locked + data + subscription）| `{locked, data, subscription}` | 404 result_not_ready |
+| POST | /api/upgrade | 匿名 | 匿名升级正式账号 `{email, password}` | `{ok: true}` | 400 invalid_email / password_too_short / upgrade_failed |
+| POST | /api/pay | 正式 | 模拟支付回调（幂等）| `{ok, expiresAt}` | 403 anonymous_forbidden；501 payment_disabled |
+| GET | /api/ping | 公开 | 探活 | `{ok, t}` | — |
+
+非法数值 / 越界输入在 step 层被拒（400 + `detail` 错误列表），并有单测与 E2E 覆盖（见「验证」一节）。
+
 ## 数据库 Schema
 
 ```mermaid
